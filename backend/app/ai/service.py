@@ -11,6 +11,28 @@ import hashlib
 import logging
 import time
 import uuid
+import platform
+import torch
+
+def get_device():
+    """
+    Detects the best available device for AI computations.
+    - Apple Silicon (MPS) if running on macOS arm64 and available
+    - CUDA if available
+    - CPU fallback otherwise
+    """
+    # Detect Apple Silicon (arm64 on macOS)
+    if platform.system() == "Darwin" and platform.machine() == "arm64":
+        if torch.backends.mps.is_available():
+            return "mps"
+    
+    # Check CUDA
+    if torch.cuda.is_available():
+        return "cuda"
+    
+    # Fallback to CPU
+    return "cpu"
+
 from datetime import datetime
 from typing import Any, AsyncIterator
 
