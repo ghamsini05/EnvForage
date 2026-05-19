@@ -48,6 +48,7 @@ from app.ai.models import (
 from app.ai.prompts.system import TROUBLESHOOT_SYSTEM_PROMPT
 from app.ai.prompts.troubleshoot import TroubleshootPromptBuilder
 from app.ai.providers import get_provider
+from app.ai.models import DeviceType
 from app.ai.providers.base import LLMProviderError
 from app.models.ai_session import AIAuditLog, AISession, AISuggestion
 from app.templates.safety import SafetyViolationError, validate_rendered_output
@@ -103,10 +104,21 @@ class AITroubleshootService:
         user_message = self._prompt_builder.build(request, history=history)
         logger.info("Troubleshoot prompt built (%d chars)", len(user_message))
 
-        # ── Step 2: Call LLM ──────────────────────────────────────────────
-        provider = get_provider()
-        provider_name = type(provider).__name__
-        model_name = getattr(provider, "model", "unknown")
+# ── Step 2: Call LLM ──────────────────────────────────────────────
+device = get_device()
+logger.info("Selected device: %s", device)
+
+if device == DeviceType.MPS:
+    logger.info("Running with Apple Silicon (MPS) acceleration")
+elif device == DeviceType.CUDA:
+    logger.info("Running with CUDA acceleration")
+else:
+    logger.info("Running with CPU fallback")
+
+provider = get_provider()
+provider_name = type(provider).__name__
+model_name = getattr(provider, "model", "unknown")
+
 
         try:
             # The LLM returns a TroubleshootResponse directly
