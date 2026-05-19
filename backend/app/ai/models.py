@@ -72,4 +72,12 @@ class LLMResponseMeta(BaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+# ── Device Types ─────────────────────────────────────────────────────────────
+
+from enum import Enum
+
+class DeviceType(str, Enum):
+    CPU = "cpu"
+    CUDA = "cuda"
+    MPS = "mps"   # <-- Apple Silicon (Metal Performance Shaders)
 
