@@ -42,6 +42,8 @@ EnvForge helps users:
 - **RESTful API**: Fast, async backend built on FastAPI and PostgreSQL.
 
 ---
+Trigger backend tests
+
 
 ## 🏗️ Architecture
 
