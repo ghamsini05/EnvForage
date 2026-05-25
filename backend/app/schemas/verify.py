@@ -1,6 +1,6 @@
 """Pydantic schemas for environment verification."""
 import uuid
-from typing import , Optional
+from typing import  Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -27,5 +27,4 @@ class VerificationResponse(BaseModel):
     profile_id: uuid.UUID
     overall_status: str = Field(..., description="Either 'passed' or 'failed'")
     checks: list[VerificationCheckSchema] 
-
     model_config = ConfigDict(from_attributes=True)
