@@ -12,13 +12,12 @@ import logging
 import time
 import uuid
 from datetime import datetime
-from typing import Any, AsyncIterator
+from typing import AsyncIterator
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.models import (
-    LLMResponseMeta,
     SuggestedFix,
     TroubleshootRequest,
     TroubleshootResponse,
@@ -36,15 +35,6 @@ logger = logging.getLogger(__name__)
 class AITroubleshootService:
     """
     Orchestrates AI-assisted troubleshooting.
-
-    This service is the single entry point for all AI troubleshooting
-    operations. It coordinates prompt building, LLM calls, safety
-    validation, database persistence, and response assembly.
-
-    Usage::
-
-        service = AITroubleshootService()
-        response = await service.troubleshoot(request, db_session)
     """
 
     def __init__(self) -> None:
@@ -55,47 +45,28 @@ class AITroubleshootService:
         request: TroubleshootRequest,
         db: AsyncSession,
     ) -> TroubleshootResponse:
-        """
-        Run the full AI troubleshooting pipeline.
-
-        Args:
-            request: Structured troubleshoot request with diagnostic data.
-            db: Async database session for audit persistence.
-
-        Returns:
-            TroubleshootResponse with root cause analysis and fix suggestions.
-
-        Raises:
-            LLMProviderError: If the LLM call fails after retries.
-            SafetyViolationError: If AI output contains forbidden patterns.
-        """
         session_id = str(uuid.uuid4())
         start_time = time.monotonic()
         input_hash = self._hash_input(request)
 
-        # ── Step 1: Build prompt ──────────────────────────────────────────
         history = None
         if request.session_id:
             history = await self._fetch_session_history(db, request.session_id)
-            
+
         user_message = self._prompt_builder.build(request, history=history)
         logger.info("Troubleshoot prompt built (%d chars)", len(user_message))
 
-        # ── Step 2: Call LLM ──────────────────────────────────────────────
         provider = get_provider()
         provider_name = type(provider).__name__
         model_name = getattr(provider, "model", "unknown")
 
         try:
-            # The LLM returns a TroubleshootResponse directly
-            # We need a response model WITHOUT session_id (LLM doesn't know it)
             llm_result = await provider.complete(
                 system_prompt=TROUBLESHOOT_SYSTEM_PROMPT,
                 user_message=user_message,
                 response_model=TroubleshootResponse,
             )
         except LLMProviderError as exc:
-            # Log the failed attempt
             latency_ms = int((time.monotonic() - start_time) * 1000)
             await self._log_audit(
                 db, session_id=None, input_hash=input_hash,
@@ -104,8 +75,6 @@ class AITroubleshootService:
             )
             raise
 
-        # ── Step 3: Safety filter ─────────────────────────────────────────
-        # Validate all text fields in the response
         safety_violation: str | None = None
         try:
             self._validate_response_safety(llm_result)
@@ -119,14 +88,12 @@ class AITroubleshootService:
             )
             raise
 
-        # ── Step 4: Enrich response ───────────────────────────────────────
         llm_result.session_id = session_id
         llm_result.repair_script_available = any(
             fix.repair_template_id is not None
             for fix in llm_result.suggested_fixes
         )
 
-        # ── Step 5: Persist to DB ─────────────────────────────────────────
         latency_ms = int((time.monotonic() - start_time) * 1000)
         token_usage = getattr(provider, "last_token_usage", None)
         if callable(token_usage):
@@ -159,22 +126,15 @@ class AITroubleshootService:
         request: TroubleshootRequest,
         db: AsyncSession,
     ) -> AsyncIterator[str]:
-        """
-        Stream the AI troubleshooting response.
-        
-        This method skips database persistence for individual tokens to
-        minimize latency, but still builds the full prompt and uses the
-        configured LLM provider in streaming mode.
-        """
         history = None
         if request.session_id:
             history = await self._fetch_session_history(db, request.session_id)
 
         user_message = self._prompt_builder.build(request, history=history)
         provider = get_provider()
-        
+
         logger.info("Starting troubleshoot stream (provider=%s)", type(provider).__name__)
-        
+
         async for chunk in provider.stream(
             system_prompt=TROUBLESHOOT_SYSTEM_PROMPT,
             user_message=user_message,
@@ -187,7 +147,6 @@ class AITroubleshootService:
         db: AsyncSession,
         session_id: str,
     ) -> list[AISuggestion]:
-        """Fetch previous AI suggestions for a given session ID."""
         try:
             stmt = (
                 select(AISuggestion)
@@ -200,19 +159,12 @@ class AITroubleshootService:
             logger.error("Failed to fetch session history for %s: %s", session_id, exc)
             return []
 
-    # ── Private helpers ───────────────────────────────────────────────────
-
     def _hash_input(self, request: TroubleshootRequest) -> str:
-        """Create a SHA-256 hash of the input for audit logging (no PII)."""
         raw = request.model_dump_json()
         return hashlib.sha256(raw.encode()).hexdigest()[:64]
 
     def _validate_response_safety(self, response: TroubleshootResponse) -> None:
-        """Run all text fields through the template SafetyFilter."""
-        # Validate root cause text
         validate_rendered_output(response.root_cause, "ai_root_cause")
-
-        # Validate each suggestion
         for fix in response.suggested_fixes:
             validate_rendered_output(fix.title, "ai_fix_title")
             validate_rendered_output(fix.description, "ai_fix_description")
@@ -228,7 +180,6 @@ class AITroubleshootService:
         provider_name: str,
         model_name: str,
     ) -> None:
-        """Persist the AI session and suggestions to the database."""
         try:
             db_session = AISession(
                 id=uuid.UUID(session_id),
@@ -255,8 +206,6 @@ class AITroubleshootService:
 
         except Exception as exc:
             logger.error("Failed to persist AI session: %s", exc)
-            # Don't fail the request if persistence fails
-            # The response is still valid
 
     async def _log_audit(
         self,
@@ -270,7 +219,6 @@ class AITroubleshootService:
         tokens_used: int,
         latency_ms: int,
     ) -> None:
-        """Write an audit log entry for the AI interaction."""
         try:
             log = AIAuditLog(
                 id=uuid.uuid4(),
