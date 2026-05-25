@@ -34,3 +34,4 @@ class OpenAIProvider(LLMProvider):
                 raise LLMProviderError(f"OpenAI API error occurred: {e.response.text}")
             except Exception as e:
                 raise LLMProviderError(f"Unexpected connection error under OpenAI provider: {str(e)}")
+                
